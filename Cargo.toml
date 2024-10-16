@@ -1,0 +1,20 @@
+[package]
+name = "bnuystore"
+version = "0.1.0"
+edition = "2021"
+default-run = "bnuy-node"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.5.20", features = ["derive"] }
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
+shlex = "1.3.0"
+tokio = { version = "1.40.0", features = ["fs", "macros", "net", "rt", "rt-multi-thread", "sync", "signal", "io-util", "io-std", "process"] }
+uuid = { version = "1.10.0", features = ["rng", "fast-rng", "v7"] }
+
+
+[[bin]]
+name = "bnuy-node"
+path = "src/node_main.rs"
