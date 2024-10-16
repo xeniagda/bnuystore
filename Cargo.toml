@@ -18,3 +18,7 @@ uuid = { version = "1.10.0", features = ["rng", "fast-rng", "v7"] }
 [[bin]]
 name = "bnuy-node"
 path = "src/node_main.rs"
+
+[[bin]]
+name = "bnuy-diagnose"
+path = "src/diagnose_main.rs"
