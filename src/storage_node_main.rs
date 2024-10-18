@@ -4,9 +4,10 @@ use std::net::SocketAddr;
 use tokio::net::TcpSocket;
 
 mod message;
-mod node;
-
 use message::Message;
+
+mod storage_node;
+use storage_node::{Node, OperationError};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -45,7 +46,7 @@ async fn main() {
 
     eprintln!("listening for connections");
 
-    let node = node::Node::new(cli.data_directory).await.expect("Could not initialize node");
+    let node = Node::new(cli.data_directory).await.expect("Could not initialize node");
 
     loop {
         let (mut stream, addr) = listener.accept().await.expect("Could not accept connection");
@@ -86,9 +87,9 @@ async fn main() {
 }
 
 async fn handle_message(
-    node: &node::Node,
+    node: &Node,
     message: Message,
-) -> Result<Message, node::OperationError> {
+) -> Result<Message, OperationError> {
     Ok(match message {
         Message::GetVersion => {
             Message::MyVersionIs(env!("CARGO_PKG_VERSION").to_string())

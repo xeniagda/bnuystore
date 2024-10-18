@@ -1,17 +1,14 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::net::SocketAddr;
-use std::io::IsTerminal;
 
 use clap::{Parser, Subcommand};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::io::{BufReader, AsyncBufReadExt, AsyncWriteExt};
 
 mod message;
-mod node;
+mod storage_node;
 
-use message::Message;
-use node::OperationError;
 use uuid::Uuid;
 
 #[derive(Debug, Parser)]

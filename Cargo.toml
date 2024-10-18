@@ -2,7 +2,7 @@
 name = "bnuystore"
 version = "0.1.0"
 edition = "2021"
-default-run = "bnuy-node"
+default-run = "bnuystore-diagnose"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -16,9 +16,9 @@ uuid = { version = "1.10.0", features = ["rng", "fast-rng", "v7"] }
 
 
 [[bin]]
-name = "bnuy-node"
-path = "src/node_main.rs"
+name = "storage-node"
+path = "src/storage_node_main.rs"
 
 [[bin]]
-name = "bnuy-diagnose"
+name = "bnuystore-diagnose"
 path = "src/diagnose_main.rs"

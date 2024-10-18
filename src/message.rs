@@ -7,6 +7,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub struct MessageID(pub u32);
 
 #[derive(Debug)]
+#[allow(unused)]
 pub enum ParseMessageError {
     IOError(std::io::Error),
     ParseJsonError(serde_json::Error),
