@@ -1,0 +1,8 @@
+[connection_options]
+database = "bnuybase"
+socket_path = "/run/mysqld/mysqld.sock"
+user = "xenia"
+
+[storage_nodes.bnuy-1]
+ip = "127.0.0.1"
+port = 1312

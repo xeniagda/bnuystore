@@ -27,9 +27,13 @@
           name = "bnuystore";
           src = ./.;
           cargoLock = { lockFile = ./Cargo.lock; };
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.openssl ];
         };
         devShells.default = pkgs.mkShell {
           packages = [ rust ];
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.openssl ];
         };
       }
     );
