@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use mysql_async::prelude::*;
 use clap::Parser;
 
+mod owned_task;
 mod front_node;
+mod message;
 
 #[derive(Parser)]
 struct CLI {
@@ -18,19 +20,10 @@ async fn main() {
     eprintln!("Started with config:");
     eprintln!("{cfg:#?}");
 
-    println!("mjau");
+    let _front_node = front_node::FrontNode::start_from_config(cfg).await.expect("could not start front node");
 
-    let connection_options = cfg.connection_options.mysql_opts().await;
-    let pool = mysql_async::Pool::new(connection_options);
-    let mut transaction = pool.start_transaction(Default::default()).await.expect("Could not start transaction");
-
-    let query = "SELECT user(), database();";
-
-    eprintln!("querying {query}");
-
-    let rows: Vec<(String, String)> = query.fetch(&mut transaction).await.expect("could not issue a SELECT");
-    assert_eq!(rows.len(), 1);
-    let (user, db) = &rows[0];
-    eprintln!("connected as user={user:?} to db={db:?}");
+    loop {
+        tokio::task::yield_now().await;
+    }
 }
 

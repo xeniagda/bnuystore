@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct MessageID(pub u32);
 
 #[derive(Debug)]

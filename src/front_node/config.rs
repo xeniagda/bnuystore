@@ -52,10 +52,10 @@ impl ConnectionOptions {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct StorageNodeConfig {
-    ip: String,
-    port: u16,
+    pub ip: String,
+    pub port: u16,
     // todo: auth token
 }
 
