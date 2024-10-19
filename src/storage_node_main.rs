@@ -50,7 +50,7 @@ async fn main() {
 
     loop {
         let (mut stream, addr) = listener.accept().await.expect("Could not accept connection");
-        eprintln!("got a connection from {addr:?}. bye!");
+        eprintln!("got a connection from {addr:?}. hii!");
 
         let node = node.clone();
         tokio::task::spawn(async move {
