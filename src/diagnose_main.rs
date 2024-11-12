@@ -7,7 +7,6 @@ use tokio::net::{TcpSocket, TcpStream};
 use tokio::io::{BufReader, AsyncBufReadExt, AsyncWriteExt};
 
 mod message;
-mod storage_node;
 
 use uuid::Uuid;
 

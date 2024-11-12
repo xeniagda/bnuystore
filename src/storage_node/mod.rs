@@ -11,6 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::io::ErrorKind;
 
 #[derive(Debug)]
+#[allow(unused)]
 pub enum OperationError {
     NoFileWithUuid(Uuid),
     IOError(std::io::Error),
@@ -100,6 +101,7 @@ impl FileLock {
         Ok(())
     }
 
+    #[allow(unused)]
     pub async fn delete(&self) -> Result<()> {
         match tokio::fs::remove_file(self.path()).await {
             Ok(_) => Ok(()),

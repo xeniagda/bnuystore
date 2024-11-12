@@ -27,8 +27,6 @@ struct CLI {
 #[tokio::main]
 async fn main() {
     let cli = CLI::parse();
-    eprintln!("cli:");
-    eprintln!("{cli:?}");
 
     let addr: SocketAddr = cli.bind_addr.parse().expect("Could not parse socket address");
 
@@ -110,6 +108,6 @@ async fn handle_message(
         Message::MyVersionIs(_) => todo!(),
         Message::FileContents(_) => todo!(),
         Message::Ack => todo!(),
-        Message::Error(e) => todo!(),
+        Message::Error(_) => todo!(),
     })
 }
