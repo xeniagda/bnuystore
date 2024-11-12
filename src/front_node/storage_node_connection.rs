@@ -25,11 +25,13 @@ struct StorageNodeConnectionInner {
 /// Only locks the mutex while a message is being sent
 pub struct StorageNodeConnection {
     inner: Arc<Mutex<StorageNodeConnectionInner>>,
+    #[allow(unused)]
     pub disconnect: Arc<Notify>,
 }
 
 /// If an error occurs, the calling code should unconditionally abort
 /// An long-living task
+#[derive(Debug, Clone, Copy)]
 pub enum ConnectionError {
     ClientDisconnected,
 }
