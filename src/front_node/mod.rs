@@ -59,9 +59,14 @@ impl From<ConnectionError> for Error {
     fn from(value: ConnectionError) -> Self { Error::ConnectionError(value) }
 }
 
-struct FileInfo {
+struct UploadFileInfo {
     #[allow(unused)]
     data_length: usize,
+}
+
+pub struct GetFileInfo {
+    pub uuid: Uuid,
+    pub node_name: String,
 }
 
 impl FrontNode {
@@ -86,15 +91,19 @@ impl FrontNode {
         &self,
         filename: String,
         path: String,
-    ) -> Result<Option<(Vec<u8>, Uuid)>, Error> {
-        let query = "SELECT uuid, stored_on_node_id FROM files WHERE name = :filename AND path = :path;";
+    ) -> Result<Option<(Vec<u8>, GetFileInfo)>, Error> {
+        let query = r#"
+            SELECT files.uuid, files.stored_on_node_id, nodes.name
+                FROM files INNER JOIN nodes ON files.stored_on_node_id = nodes.id
+                WHERE files.name = :filename AND path = :path;
+            "#;
 
-        let (uuid, id) = match query
+        let (uuid, id, node_name) = match query
             .with(params! { "filename" => filename, "path" => path })
             .first(&self.conn_pool)
             .await?
         {
-            Some((uuid, id)) => (parse_uuid(Vec::as_slice(&uuid))?, StorageNodeID(id)),
+            Some((uuid, id, name)) => (parse_uuid(Vec::as_slice(&uuid))?, StorageNodeID(id), name),
             None => return Ok(None),
         };
 
@@ -107,14 +116,20 @@ impl FrontNode {
         };
 
         match conn.communicate(Message::ReadFile(uuid)).await? {
-            Message::FileContents(c) => Ok(Some((c, uuid))),
+            Message::FileContents(c) => {
+                let info = GetFileInfo {
+                    uuid,
+                    node_name,
+                };
+                Ok(Some((c, info)))
+            }
             x => Err(Error::UnexpectedResponse(x))
         }
     }
 
     async fn get_appropriate_node_for(
         &self,
-        _file_info: &FileInfo,
+        _file_info: &UploadFileInfo,
     ) -> Result<StorageNodeID, Error> {
         let connections = self.active_connections.read().await;
         if let Some(i) = connections.keys().next() {
@@ -130,7 +145,7 @@ impl FrontNode {
         path: String,
         contents: Vec<u8>,
     ) -> Result<Uuid, Error> {
-        let info = FileInfo {
+        let info = UploadFileInfo {
             data_length: contents.len(),
         };
 

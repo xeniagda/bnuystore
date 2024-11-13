@@ -81,11 +81,12 @@ async fn get_file_by_name(
         .unwrap_or(("".to_string(), full_path));
 
     match state.node.get_file(file, path).await {
-        Ok(Some((data, uuid))) => {
-            let uuid_str = uuid.as_hyphenated().encode_lower(&mut Uuid::encode_buffer()).to_string();
+        Ok(Some((data, info))) => {
+            let uuid_str = info.uuid.as_hyphenated().encode_lower(&mut Uuid::encode_buffer()).to_string();
             Response::builder()
                 .status(200)
                 .header("X-File-UUID", uuid_str)
+                .header("X-Node-Name", info.node_name)
                 .body(Body::from(data))
                 .unwrap()
         }
