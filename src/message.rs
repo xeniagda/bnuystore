@@ -44,6 +44,22 @@ pub enum Message {
     Error(String),
 }
 
+impl std::fmt::Display for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Message::GetVersion => write!(f, "GetVersion"),
+            Message::ReadFile(uuid) => write!(f, "ReadFile({uuid})"),
+            Message::WriteFile(uuid, data) => write!(f, "WriteFile({uuid}, data.len = {})", data.len()),
+            Message::DeleteFile(uuid) => write!(f, "DeleteFile({uuid})"),
+
+            Message::MyVersionIs(ver) => write!(f, "MyVersionIs({ver:?})"),
+            Message::FileContents(data) => write!(f, "FileContents(data.len = {})", data.len()),
+            Message::Ack => write!(f, "Ack"),
+            Message::Error(err) => write!(f, "Error({err:?})"),
+        }
+    }
+}
+
 /// the representation of the message that is sent over the stream
 /// differs from Message in that, Uuids are stringified and large data
 /// are sent separately
