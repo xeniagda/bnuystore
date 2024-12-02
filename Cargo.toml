@@ -22,7 +22,7 @@ http = { version = "1.1.0", optional = true }
 
 
 [features]
-front_node = ["dep:mysql_async", "dep:mysql_common", "dep:axum", "dep:http"]
+front-node = ["dep:mysql_async", "dep:mysql_common", "dep:axum", "dep:http"]
 
 [[bin]]
 name = "storage-node"
@@ -35,5 +35,5 @@ path = "src/diagnose_main.rs"
 [[bin]]
 name = "front-node"
 path = "src/front_node_main.rs"
-required-features = ["front_node"]
+required-features = ["front-node"]
 
