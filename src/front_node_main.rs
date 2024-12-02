@@ -10,6 +10,7 @@ use axum::{
     body::{Bytes, Body},
     Router,
 };
+use http::status::StatusCode;
 use uuid::Uuid;
 
 mod front_node;
@@ -53,6 +54,9 @@ async fn main() {
         }))
         .route("/get/file-by-path/*full_path", get(get_file_by_name))
         .route("/upload/file-by-path/*full_path", post(upload_file))
+        .route("/create/directory-by-path/*full_path", post(create_directory))
+        .route("/list-directory/*full_path", get(list_directory))
+        .route("/list-directory/", get(|state| list_directory(Path("".to_string()), state)))
         .with_state(state)
         ;
 
@@ -65,11 +69,6 @@ async fn main() {
     };
 
     axum::serve(listener, router).await.expect("HTTP server failed");
-
-    // loop {
-    //     tokio::task::yield_now().await;
-
-    // }
 }
 
 async fn get_file_by_name(
@@ -84,7 +83,7 @@ async fn get_file_by_name(
         Ok(Some((data, info))) => {
             let uuid_str = info.uuid.as_hyphenated().encode_lower(&mut Uuid::encode_buffer()).to_string();
             Response::builder()
-                .status(200)
+                .status(StatusCode::OK)
                 .header("X-File-UUID", uuid_str)
                 .header("X-Node-Name", info.node_name)
                 .body(Body::from(data))
@@ -92,13 +91,13 @@ async fn get_file_by_name(
         }
         Ok(None) => {
             Response::builder()
-                .status(404)
+                .status(StatusCode::NOT_FOUND)
                 .body(Body::from("No such file"))
                 .unwrap()
         }
         Err(e) => {
             Response::builder()
-                .status(500)
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(format!("Error finding file: {e:?}")))
                 .unwrap()
         }
@@ -118,10 +117,52 @@ async fn upload_file(
         Ok(uuid) => {
             let uuid_str = uuid.as_hyphenated().encode_lower(&mut Uuid::encode_buffer()).to_string();
             Response::builder()
-                .status(200)
+                .status(StatusCode::OK)
                 .header("X-File-UUID", uuid_str)
                 .body(Body::from("upload successful"))
                 .unwrap()
+        }
+        Err(e) => {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Error finding file: {e:?}")))
+                .unwrap()
+        }
+    }
+}
+
+async fn create_directory(
+    Path(full_path): Path<String>,
+    State(state): State<AppState>,
+) -> Response {
+    let (parent, dir) = full_path.rsplit_once('/')
+        .map(|(parent, dir)| (parent.to_string(), dir.to_string()))
+        .unwrap_or(("".to_string(), full_path));
+
+    match state.node.create_directory(parent, dir).await {
+        Ok(()) => {
+            Response::builder()
+                .status(StatusCode::OK)
+                .body(Body::from("create successful"))
+                .unwrap()
+        }
+        Err(e) => {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Error creating directory: {e:?}")))
+                .unwrap()
+        }
+    }
+}
+
+async fn list_directory(
+    Path(path): Path<String>,
+    State(state): State<AppState>,
+) -> Response {
+    match state.node.list_directory(path).await {
+        Ok(list) => {
+            use axum::response::IntoResponse;
+            (StatusCode::OK, axum::Json(list)).into_response()
         }
         Err(e) => {
             Response::builder()
@@ -131,3 +172,4 @@ async fn upload_file(
         }
     }
 }
+

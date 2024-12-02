@@ -16,11 +16,13 @@ toml = "0.8.19"
 uuid = { version = "1.10.0", features = ["rng", "fast-rng", "v7", "serde"] }
 
 mysql_async = { version = "0.34.2", default-features = false, features = ["minimal"], optional = true }
+mysql_common = { version = "0.32.4", default-features = false, features = [], optional = true }
 axum = { version = "0.7.7", default-features = false, features = ["tokio", "http1", "json", "query", "matched-path", "macros"], optional = true }
+http = { version = "1.1.0", optional = true }
 
 
 [features]
-front_node = ["dep:mysql_async", "dep:axum"]
+front_node = ["dep:mysql_async", "dep:mysql_common", "dep:axum", "dep:http"]
 
 [[bin]]
 name = "storage-node"

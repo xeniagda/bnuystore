@@ -8,14 +8,13 @@ use tokio::sync::RwLock;
 
 pub mod config;
 pub mod storage_node_connection;
+pub mod tys;
 
 use storage_node_connection::{StorageNodeConnection, ConnectionError};
 
 use crate::message::Message;
+use tys::{StorageNodeID, DirectoryID};
 
-/// Corresponds to database nodes.id
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-struct StorageNodeID(i32);
 
 pub struct FrontNode {
     #[allow(unused)]
@@ -38,6 +37,8 @@ pub enum Error {
     MalformedUUIDError(Vec<u8>, uuid::Error),
     UnexpectedResponse(Message),
     NotConnectedToAnyNode,
+
+    NoSuchDirectory { topmost_existing_directory: String },
 }
 
 fn parse_uuid(data: &[u8]) -> Result<Uuid, Error> {
@@ -69,6 +70,12 @@ pub struct GetFileInfo {
     pub node_name: String,
 }
 
+#[derive(serde::Serialize)]
+pub struct DirectoryListing {
+    file_names: Vec<String>,
+    directory_names: Vec<String>,
+}
+
 impl FrontNode {
     pub async fn start_from_config(
         cfg: config::Config
@@ -86,20 +93,66 @@ impl FrontNode {
         })
     }
 
+    async fn directory_id_for_path(
+        &self,
+        path: String,
+    ) -> Result<DirectoryID, Error> {
+        let root: DirectoryID = {
+            let root_query = r#"SELECT directory_id FROM root_directory"#;
+            root_query
+                .first(&self.conn_pool)
+                .await?
+                .expect("root_directory table is empty")
+        };
+
+        if path.len() == 0 {
+            return Ok(root);
+        }
+
+        let mut current_directory = root;
+
+        let mut topmost_existing_directory = String::new();
+
+        for segment in path.split('/') {
+            current_directory = {
+                let subdir_query = r#"
+                    SELECT id FROM directories WHERE name = :segment AND parent_id = :current_directory;
+                "#;
+                let next_directory = subdir_query
+                    .with(params! { "segment" => segment, "current_directory" => current_directory })
+                    .first(&self.conn_pool)
+                    .await?;
+                if let Some(next_directory) = next_directory {
+                    topmost_existing_directory.push_str(&segment);
+                    topmost_existing_directory.push('/');
+                    next_directory
+                } else {
+
+                    return Err(Error::NoSuchDirectory { topmost_existing_directory });
+                }
+            };
+        }
+
+        Ok(current_directory)
+    }
+
     // None = file not found
+    // TODO: Add NoSuchFile to Error?
     pub async fn get_file(
         &self,
         filename: String,
         path: String,
     ) -> Result<Option<(Vec<u8>, GetFileInfo)>, Error> {
+        let dir = self.directory_id_for_path(path).await?;
+
         let query = r#"
             SELECT files.uuid, files.stored_on_node_id, nodes.name
                 FROM files INNER JOIN nodes ON files.stored_on_node_id = nodes.id
-                WHERE files.name = :filename AND path = :path;
+                WHERE files.name = :filename AND directory_id = :dir;
             "#;
 
         let (uuid, id, node_name) = match query
-            .with(params! { "filename" => filename, "path" => path })
+            .with(params! { "filename" => filename, "dir" => dir.0 })
             .first(&self.conn_pool)
             .await?
         {
@@ -127,6 +180,51 @@ impl FrontNode {
         }
     }
 
+    pub async fn list_directory(
+        &self,
+        path: String,
+    ) -> Result<DirectoryListing, Error> {
+        let dir = self.directory_id_for_path(path).await?;
+
+        let query_files = r#"
+            SELECT name FROM files
+                WHERE directory_id = :dir;
+            "#;
+
+        let query_dirs = r#"
+            SELECT name FROM directories
+                WHERE parent_id = :dir;
+            "#;
+
+        let file_names: Vec<String> = query_files.with(params! { "dir" => &dir })
+            .fetch(&self.conn_pool)
+            .await?;
+
+        let directory_names: Vec<String> = query_dirs.with(params! { "dir" => &dir })
+            .fetch(&self.conn_pool)
+            .await?;
+
+        Ok(DirectoryListing { file_names, directory_names })
+    }
+
+    pub async fn create_directory(
+        &self,
+        parent_path: String,
+        dir_name: String,
+    ) -> Result<(), Error> {
+        let parent = self.directory_id_for_path(parent_path).await?;
+        let query = r#"
+            INSERT INTO directories
+                (name, parent_id) VALUES
+                (:dir_name, :parent);
+        "#;
+        query
+            .with(params! { "dir_name" => dir_name, "parent" => parent })
+            .ignore(&self.conn_pool)
+            .await?;
+        Ok(())
+    }
+
     async fn get_appropriate_node_for(
         &self,
         _file_info: &UploadFileInfo,
@@ -145,6 +243,8 @@ impl FrontNode {
         path: String,
         contents: Vec<u8>,
     ) -> Result<Uuid, Error> {
+        let dir = self.directory_id_for_path(path).await?;
+
         let info = UploadFileInfo {
             data_length: contents.len(),
         };
@@ -167,12 +267,16 @@ impl FrontNode {
             id
         };
 
-        let query = "INSERT INTO files(uuid, name, path, stored_on_node_id) VALUES (:uuid, :name, :path, :stored_on_node_id);";
+        let query = r#"
+            INSERT INTO files
+                (uuid, name, directory_id, stored_on_node_id) VALUES
+                (:uuid, :name, :dir, :stored_on_node_id);
+        "#;
 
         query.with(params! {
             "uuid" => uuid,
             "name" => filename,
-            "path" => path,
+            "dir" => dir,
             "stored_on_node_id" => id.0,
         }).ignore(&self.conn_pool).await?;
 

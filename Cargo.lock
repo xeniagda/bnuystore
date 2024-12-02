@@ -229,7 +229,9 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
+ "http",
  "mysql_async",
+ "mysql_common",
  "serde",
  "serde_json",
  "shlex",
