@@ -1,3 +1,6 @@
+#[allow(unused)]
+use tracing::{trace, debug, info, warn, error, instrument, span, Instrument, Level};
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -37,9 +40,11 @@ pub enum ConnectionError {
 }
 
 impl StorageNodeConnection {
+    #[instrument(level = "debug")]
     pub async fn connect(cfg: &StorageNodeConfig) -> Result<Self, std::io::Error> {
         let stream = TcpStream::connect((cfg.ip.clone(), cfg.port)).await?;
         let (mut read, write) = stream.into_split();
+        trace!("Established TCP stream");
 
         let inner = StorageNodeConnectionInner {
             stream: write,
@@ -50,6 +55,8 @@ impl StorageNodeConnection {
         let inner = Arc::new(Mutex::new(inner));
         let disconnect = Arc::new(Notify::new());
 
+        trace!("Spawning receiving task");
+        let recv_span = span!(Level::DEBUG, "recv");
         // TODO: do we wanna store the task somewhere?
         // It could outlive the connection which is not great
         let _recv_task = tokio::spawn({
@@ -60,33 +67,34 @@ impl StorageNodeConnection {
                 loop {
                     match parse_message(&mut read).await {
                         Ok((id, msg)) => {
+                            debug!(?id, %msg, "Got response");
                             let mut inner = inner.lock().await;
                             let Some(sender) = inner.waiting_responses.remove(&id) else {
-                                eprintln!("Got response to non-existant request {id:?}. Ignoring");
+                                debug!(?id, %msg, "Got response to non-existant request {id:?}. Ignoring");
                                 continue;
                             };
                             std::mem::drop(inner);
-                            if let Err(_) = sender.send(msg) {
-                                eprintln!("Got response to request that does exist, but no one's waiting for it. Ignoring");
+                            if let Err(_) = sender.send(msg.clone()) {
+                                error!(?id, %msg, "Got response to request that does exist, but no one's waiting for it. Ignoring");
                             }
                         }
                         Err(e) => {
-                            eprintln!("Parsing message failed:");
+                            error!("Parsing message failed:");
                             match e {
                                 ParseMessageError::IOError(e) => {
-                                    eprintln!("IO Error: {e:?}");
+                                    error!("IO Error: {e:?}");
                                 }
                                 ParseMessageError::ParseJsonError(e) => {
-                                    eprintln!("Invalid JSON received: {e:?}");
+                                    error!("Invalid JSON received: {e:?}");
                                 }
                                 ParseMessageError::ParseUuidError(e) => {
-                                    eprintln!("Invalid UUID received: {e:?}");
+                                    error!("Invalid UUID received: {e:?}");
                                 }
                                 ParseMessageError::RequestTooLarge(n) => {
-                                    eprintln!("Tried to allocate {} MiB", n>>20);
+                                    error!("Tried to allocate {} MiB", n>>20);
                                 }
                             }
-                            eprintln!("Killing connection.");
+                            error!("Killing connection.");
                             disconnect.notify_waiters();
 
                             let mut inner = inner.lock().await;
@@ -99,7 +107,7 @@ impl StorageNodeConnection {
                     }
                 }
             }
-        });
+        }.instrument(recv_span));
 
         Ok(StorageNodeConnection {
             inner,
@@ -108,12 +116,14 @@ impl StorageNodeConnection {
     }
 
     // TODO: Register a timeout task
+    #[instrument(level = "debug", skip(self))]
     pub async fn communicate(
         &self,
         message: Message,
     ) -> Result<Message, ConnectionError> {
         let listener = {
             let mut inner = self.inner.lock().await;
+            trace!("Generating ID for message");
             let id = {
                 let id = inner.next_message_id;
 
@@ -124,19 +134,25 @@ impl StorageNodeConnection {
 
                 id
             };
+            trace!(?id, "Generated ID");
 
             let (sender, listener) = oneshot::channel();
             inner.waiting_responses.insert(id, sender);
 
+            debug!(?id, "Sending message");
             write_message(&mut inner.stream, id, message)
                 .await
                 .map_err(|_| ConnectionError::ClientDisconnected)?;
             listener
         };
 
+        trace!("Waiting for response");
         match listener.await {
             Ok(m) => Ok(m),
-            Err(_recverror) => Err(ConnectionError::ClientDisconnected),
+            Err(_recverror) => {
+                error!("Client disconnected");
+                return Err(ConnectionError::ClientDisconnected);
+            }
         }
     }
 }

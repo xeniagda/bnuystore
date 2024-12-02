@@ -1,3 +1,6 @@
+#[allow(unused)]
+use tracing::{trace, debug, info, warn, error, instrument};
+
 use std::path::PathBuf;
 
 use std::collections::HashMap;
@@ -16,9 +19,9 @@ impl Config {
             Ok(c) => c,
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    eprintln!("Could not find config file at {}", path.display());
+                    error!(path = %path.display(), "Could not find config file");
                 } else {
-                    eprintln!("Could not read config file: {e:?}");
+                    error!(?e, "Could not read config file");
                 }
                 std::process::exit(1);
             }
@@ -26,8 +29,7 @@ impl Config {
         match toml::from_str(&contents) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Could not parse config file:");
-                eprintln!("{}", e.message());
+                error!(?e, "Could not parse config file");
                 std::process::exit(1);
             }
         }

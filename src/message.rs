@@ -28,7 +28,7 @@ impl From<serde_json::Error> for ParseMessageError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Message {
     // requests
     GetVersion, // returns a MyVersionIs
