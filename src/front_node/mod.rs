@@ -13,11 +13,10 @@ pub mod config;
 pub mod storage_node_connection;
 pub mod tys;
 
-use storage_node_connection::{StorageNodeConnection, ConnectionError};
+use storage_node_connection::StorageNodeConnection;
 
 use crate::message::Message;
-use tys::{StorageNodeID, DirectoryID};
-
+use tys::{StorageNodeID, DirectoryID, Error};
 
 pub struct FrontNode {
     #[allow(unused)]
@@ -27,40 +26,6 @@ pub struct FrontNode {
     // and tries to spawn/respawn/unspawn connections
     #[allow(unused)]
     active_connections: Arc<RwLock<HashMap<StorageNodeID, Arc<StorageNodeConnection>>>>,
-}
-
-#[derive(Debug)]
-#[allow(unused)]
-pub enum Error {
-    IO(std::io::Error),
-    DatabaseError(mysql_async::Error),
-    ConnectionError(ConnectionError),
-    // tried to connect to a node we're not connected to
-    NotConnectedToNode,
-    MalformedUUIDError(Vec<u8>, uuid::Error),
-    UnexpectedResponse(Message),
-    NotConnectedToAnyNode,
-
-    NoSuchDirectory { topmost_existing_directory: String },
-}
-
-fn parse_uuid(data: &[u8]) -> Result<Uuid, Error> {
-    match Uuid::from_slice(data) {
-        Ok(u) => Ok(u),
-        Err(e) => Err(Error::MalformedUUIDError(data.to_vec(), e)),
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self { Error::IO(value) }
-}
-
-impl From<mysql_async::Error> for Error {
-    fn from(value: mysql_async::Error) -> Self { Error::DatabaseError(value) }
-}
-
-impl From<ConnectionError> for Error {
-    fn from(value: ConnectionError) -> Self { Error::ConnectionError(value) }
 }
 
 struct UploadFileInfo {
