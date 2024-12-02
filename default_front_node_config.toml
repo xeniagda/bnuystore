@@ -6,3 +6,7 @@ user = "xenia"
 [storage_nodes.bnuy-1]
 ip = "127.0.0.1"
 port = 1312
+
+[storage_nodes.bnuy-2]
+ip = "127.0.0.2"
+port = 1312
