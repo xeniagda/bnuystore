@@ -23,10 +23,13 @@
             cargo = rust;
           };
       in rec {
-        packages.default = platform.buildRustPackage {
+        # includes bin/bnuystore-diagnose,front-node,storage-node
+        packages.bnuystore = platform.buildRustPackage {
           name = "bnuystore";
           src = ./.;
           cargoLock = { lockFile = ./Cargo.lock; };
+          buildFeatures = [ "front-node" ];
+
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.openssl ];
         };
