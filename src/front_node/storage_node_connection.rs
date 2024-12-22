@@ -2,9 +2,11 @@
 use tracing::{trace, debug, info, warn, error, instrument, span, Instrument, Level};
 
 use std::collections::HashMap;
+use std::io::{Error, ErrorKind};
+use std::net::ToSocketAddrs;
 use std::sync::Arc;
 
-use tokio::net::{tcp, TcpStream};
+use tokio::net::{tcp, TcpSocket};
 use tokio::sync::{Mutex, Notify, oneshot};
 
 use crate::message::{Message, MessageID, ParseMessageError, parse_message, write_message};
@@ -41,8 +43,24 @@ pub enum ConnectionError {
 
 impl StorageNodeConnection {
     #[instrument(level = "debug")]
-    pub async fn connect(cfg: &StorageNodeConfig) -> Result<Self, std::io::Error> {
-        let stream = TcpStream::connect((cfg.ip.clone(), cfg.port)).await?;
+    pub async fn connect(cfg: &StorageNodeConfig) -> Result<Self, Error> {
+        let socket = TcpSocket::new_v4()?;
+        socket.set_keepalive(true)?;
+
+        let addr = cfg.addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or(Error::new(ErrorKind::AddrNotAvailable, format!("Address {} did not resolve", cfg.addr)))?;
+
+        let timeout_duration = std::time::Duration::from_secs(cfg.timeout_s);
+
+        let stream = match tokio::time::timeout(timeout_duration, socket.connect(addr)).await {
+            Ok(x) => x?,
+            Err(_) => {
+                return Err(Error::new(ErrorKind::ConnectionAborted, format!("Connection timed out after {} seconds", cfg.timeout_s)));
+            }
+        };
+
         let (mut read, write) = stream.into_split();
         trace!("Established TCP stream");
 

@@ -54,10 +54,12 @@ impl ConnectionOptions {
     }
 }
 
+const fn default_timeout() -> u64 { 1 }
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct StorageNodeConfig {
-    pub ip: String,
-    pub port: u16,
-    // todo: auth token
+    pub addr: String,
+    #[serde(default = "default_timeout")]
+    pub timeout_s: u64,
 }
 
