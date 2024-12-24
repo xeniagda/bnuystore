@@ -28,10 +28,6 @@ struct CLI {
     /// Path to config toml file
     #[arg(short='c', long="config-file")]
     config_file: PathBuf,
-
-    /// address to serve HTTP over, ip:port
-    #[arg(long="http-listen")]
-    http_addr: String,
 }
 
 #[derive(Clone)]
@@ -53,12 +49,13 @@ async fn main() {
 
     let cli = CLI::parse();
 
-    let Ok(addr) = cli.http_addr.parse::<SocketAddr>() else {
-        error!("Could not parse HTTP address {}. Format must be IP:PORT", cli.http_addr);
-        return;
-    };
 
     let cfg = front_node::config::Config::read_from_path(cli.config_file).await;
+
+    let Ok(addr) =  cfg.http_server.listen_addr.parse::<SocketAddr>() else {
+        error!("Could not parse HTTP address {}. Format must be IP:PORT", cfg.http_server.listen_addr);
+        return;
+    };
 
     debug!("Loaded config. Starting node");
     let front_node = front_node::FrontNode::start_from_config(cfg).await.expect("could not start front node");

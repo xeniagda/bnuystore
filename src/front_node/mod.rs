@@ -48,7 +48,7 @@ impl FrontNode {
     pub async fn start_from_config(
         cfg: config::Config
     ) -> Result<FrontNode, Error> {
-        let connection_options = cfg.connection_options.mysql_opts().await;
+        let connection_options = cfg.database_connection.mysql_opts().await;
         trace!("Opening database connection");
         let conn_pool = mysql_async::Pool::new(connection_options);
 

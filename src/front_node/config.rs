@@ -7,7 +7,8 @@ use std::collections::HashMap;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Config {
-    pub connection_options: ConnectionOptions,
+    pub database_connection: DatabaseConnectionOptions,
+    pub http_server: HTTPServerOptions,
 
     pub storage_nodes: HashMap<String, StorageNodeConfig>,
 }
@@ -37,14 +38,14 @@ impl Config {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct ConnectionOptions {
+pub struct DatabaseConnectionOptions {
     // TODO: allow to connect using host-port-password?
-    database: String,
-    socket_path: String,
-    user: String,
+    pub database: String,
+    pub socket_path: String,
+    pub user: String,
 }
 
-impl ConnectionOptions {
+impl DatabaseConnectionOptions {
     pub async fn mysql_opts(&self) -> mysql_async::Opts {
         mysql_async::OptsBuilder::default()
             .socket(Some(&self.socket_path))
@@ -52,6 +53,11 @@ impl ConnectionOptions {
             .db_name(Some(&self.database))
             .into()
     }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct HTTPServerOptions {
+    pub listen_addr: String,
 }
 
 const fn default_timeout() -> u64 { 1 }
