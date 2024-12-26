@@ -23,6 +23,8 @@ use uuid::Uuid;
 mod front_node;
 mod message;
 
+use front_node::tys::Error;
+
 #[derive(Parser)]
 struct CLI {
     /// Path to config toml file
@@ -52,19 +54,33 @@ async fn main() {
 
     let cfg = front_node::config::Config::read_from_path(cli.config_file).await;
 
-    let Ok(addr) =  cfg.http_server.listen_addr.parse::<SocketAddr>() else {
+
+    let Ok(addr) = cfg.http_server.listen_addr.parse::<SocketAddr>() else {
         error!("Could not parse HTTP address {}. Format must be IP:PORT", cfg.http_server.listen_addr);
         return;
     };
 
     debug!("Loaded config. Starting node");
-    let front_node = front_node::FrontNode::start_from_config(cfg).await.expect("could not start front node");
+    let front_node = front_node::FrontNode::start_from_config(&cfg).await.expect("could not start front node");
+    let front_node = Arc::new(front_node);
+
+    info!("Starting SSH server");
+
+    // TODO: Grab handle to monitor ssh task status maybe
+    // or create some channel to monitor more than just if it's alive?
+    tokio::task::spawn({
+        let front_node = front_node.clone();
+        async move {
+            front_node::sftp::launch_sftp_server(&cfg.sftp_server, front_node).await;
+            error!("SFTP server shut down. Not restarting.");
+        }
+    });
 
     let state = AppState {
-        node: Arc::new(front_node),
+        node: front_node,
     };
 
-    debug!("Node started. starting router.");
+    info!("Starting HTTP router.");
     let router = Router::new()
         .route("/version", get(|| async {
             format!("{name} {bin} {ver}", name=env!("CARGO_PKG_NAME"), bin=env!("CARGO_BIN_NAME"), ver=env!("CARGO_PKG_VERSION"))
@@ -89,19 +105,36 @@ async fn main() {
     axum::serve(listener, router).await.expect("HTTP server failed");
 }
 
+fn error_response(status: StatusCode, message: &str) -> Response {
+    Response::builder()
+        .status(status)
+        .body(Body::from(message.to_string()))
+        .unwrap()
+}
+
 #[instrument(skip(state))]
 async fn get_file_by_name(
     Path(full_path): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let (path, file) = full_path.rsplit_once('/')
-        .map(|(path, file)| (path.to_string(), file.to_string()))
-        .unwrap_or(("".to_string(), full_path));
+    let uuid = match state.node.file_uuid_for_path(&full_path, None).await {
+        Ok(uuid) => uuid,
+        Err(Error::NoSuchFile) => {
+            debug!("No such file");
+            return error_response(StatusCode::NOT_FOUND, "No such file");
+        }
+        Err(Error::NoSuchDirectory { topmost_existing_directory: _ }) => {
+            debug!("No such directory");
+            return error_response(StatusCode::NOT_FOUND, "No such parent directory");
+        }
+        Err(e) => {
+            error!(?e, "Error finding file");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Could not find file.");
+        }
+    };
 
-    trace!(path, file, "Split into path and file");
-
-    match state.node.get_file(file, path).await {
-        Ok(Some((data, info))) => {
+    match state.node.get_file(uuid).await {
+        Ok((data, info)) => {
             debug!(data.len = data.len(), %info.uuid, info.node_name, "Got file");
             let uuid_str = info.uuid.as_hyphenated().encode_lower(&mut Uuid::encode_buffer()).to_string();
             Response::builder()
@@ -111,19 +144,9 @@ async fn get_file_by_name(
                 .body(Body::from(data))
                 .unwrap()
         }
-        Ok(None) => {
-            debug!("No such file");
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::from("No such file"))
-                .unwrap()
-        }
         Err(e) => {
-            error!(?e, "Error listing directory contents");
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Error finding file: {e:?}")))
-                .unwrap()
+            error!(?e, "Error reading file");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "Could not read file.");
         }
     }
 }
@@ -140,7 +163,25 @@ async fn upload_file(
 
     info!("Uploading file");
 
-    match state.node.upload_file(file, path, body.to_vec()).await {
+    let dir = match state.node.directory_id_for_path(&path, None).await {
+        Ok(id) => id,
+        Err(Error::NoSuchDirectory { topmost_existing_directory: _ }) => {
+            debug!("No such directory");
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("No such directory"))
+                .unwrap();
+        }
+        Err(e) => {
+            error!(?e, "Error finding directory");
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Error finding directory")))
+                .unwrap();
+        }
+    };
+
+    match state.node.upload_file(file, dir, body.to_vec()).await {
         Ok(uuid) => {
             let uuid_str = uuid.as_hyphenated().encode_lower(&mut Uuid::encode_buffer()).to_string();
             info!(uuid_str, "File uploaded");
@@ -154,7 +195,7 @@ async fn upload_file(
             error!(?e, "Error uploading file");
             Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(format!("Error finding file: {e:?}")))
+                .body(Body::from(format!("Error finding file")))
                 .unwrap()
         }
     }
@@ -165,11 +206,29 @@ async fn create_directory(
     Path(full_path): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let (parent, dir) = full_path.rsplit_once('/')
+    let (parent_path, dir) = full_path.rsplit_once('/')
         .map(|(parent, dir)| (parent.to_string(), dir.to_string()))
         .unwrap_or(("".to_string(), full_path));
 
-    info!(parent, dir, "Creating directory");
+    info!(parent_path, dir, "Creating directory");
+
+    let parent = match state.node.directory_id_for_path(&parent_path, None).await {
+        Ok(id) => id,
+        Err(Error::NoSuchDirectory { topmost_existing_directory: _ }) => {
+            debug!("No parent directory");
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("No parent directory"))
+                .unwrap();
+        }
+        Err(e) => {
+            error!(?e, "Error finding parent");
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Error finding parent")))
+                .unwrap();
+        }
+    };
 
     match state.node.create_directory(parent, dir).await {
         Ok(()) => {
@@ -195,7 +254,25 @@ async fn list_directory(
 ) -> Response {
     debug!(path, "Listing directory contents.");
 
-    match state.node.list_directory(path).await {
+    let dir = match state.node.directory_id_for_path(&path, None).await {
+        Ok(id) => id,
+        Err(Error::NoSuchDirectory { topmost_existing_directory: _ }) => {
+            debug!("No such directory");
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("No such directory"))
+                .unwrap();
+        }
+        Err(e) => {
+            error!(?e, "Error finding parent");
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Error finding directory")))
+                .unwrap();
+        }
+    };
+
+    match state.node.list_directory(dir).await {
         Ok(list) => {
             use axum::response::IntoResponse;
             (StatusCode::OK, axum::Json(list)).into_response()

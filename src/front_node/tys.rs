@@ -23,7 +23,7 @@ impl FromValue for StorageNodeID {
 
 
 /// Corresponds to database directories.id
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, serde::Serialize)]
 pub struct DirectoryID(pub i64);
 
 impl From<DirectoryID> for mysql_async::Value {
@@ -40,20 +40,25 @@ impl FromValue for DirectoryID {
     type Intermediate = ParseIrOpt<i64>;
 }
 
-
 #[derive(Debug)]
 #[allow(unused)]
 pub enum Error {
+    // none of these should hopefully occur
     IO(std::io::Error),
     DatabaseError(mysql_async::Error),
     ConnectionError(ConnectionError),
-    // tried to connect to a node we're not connected to
-    NotConnectedToNode,
     MalformedUUIDError(Vec<u8>, uuid::Error),
+    UnknownUUID,
     UnexpectedResponse(crate::message::Message),
-    NotConnectedToAnyNode,
 
+    // these may occur and should be handled prettily
+    NotConnectedToAnyNode,
+    NotConnectedToNode,
+
+    // these are "user errors" and should be pretty-printed
+    NoSuchFile,
     NoSuchDirectory { topmost_existing_directory: String },
+    NoSuchUser { name: String },
 }
 
 impl From<std::io::Error> for Error {

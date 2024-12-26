@@ -40,13 +40,13 @@ pub struct GetFileInfo {
 
 #[derive(serde::Serialize)]
 pub struct DirectoryListing {
-    file_names: Vec<String>,
-    directory_names: Vec<String>,
+    file_uuids_and_names: Vec<(Uuid, String)>,
+    directory_ids_and_names: Vec<(DirectoryID, String)>,
 }
 
 impl FrontNode {
     pub async fn start_from_config(
-        cfg: config::Config
+        cfg: &config::Config
     ) -> Result<FrontNode, Error> {
         let connection_options = cfg.database_connection.mysql_opts().await;
         trace!("Opening database connection");
@@ -54,7 +54,7 @@ impl FrontNode {
 
         let active_connections = Arc::new(RwLock::new(HashMap::new()));
 
-        let _monitor_task = tokio::spawn(monitor_connections(conn_pool.clone(), active_connections.clone(), cfg));
+        let _monitor_task = tokio::spawn(monitor_connections(conn_pool.clone(), active_connections.clone(), cfg.clone()));
 
         Ok(FrontNode {
             conn_pool,
@@ -62,25 +62,30 @@ impl FrontNode {
         })
     }
 
+    // path should NOT have a starting slash
+    // base == None selects the root directory
     #[instrument(level = "trace", skip(self))]
-    async fn directory_id_for_path(
+    pub async fn directory_id_for_path(
         &self,
-        path: String,
+        path: &str,
+        base: Option<DirectoryID>,
     ) -> Result<DirectoryID, Error> {
-        let root: DirectoryID = {
-            let root_query = r#"SELECT directory_id FROM root_directory"#;
-            root_query
-                .first(&self.conn_pool)
-                .await?
-                .expect("root_directory table is empty")
+        let base = match base {
+            Some(base) => base,
+            None => {
+                let root_query = r#"SELECT directory_id FROM root_directory"#;
+                root_query
+                    .first(&self.conn_pool)
+                    .await?
+                    .expect("root_directory table is empty")
+            }
         };
-        trace!(?root, "found root");
 
         if path.len() == 0 {
-            return Ok(root);
+            return Ok(base);
         }
 
-        let mut current_directory = root;
+        let mut current_directory = base;
 
         let mut topmost_existing_directory = String::new();
 
@@ -111,32 +116,83 @@ impl FrontNode {
         Ok(current_directory)
     }
 
-    // None = file not found
-    // TODO: Add NoSuchFile to Error?
-    #[instrument(skip(self))]
-    pub async fn get_file(
+    // full_path should NOT have a starting slash
+    // base == None selects the root directory
+    #[instrument(level = "trace", skip(self))]
+    pub async fn file_uuid_for_path(
         &self,
-        filename: String,
-        path: String,
-    ) -> Result<Option<(Vec<u8>, GetFileInfo)>, Error> {
-        let dir = self.directory_id_for_path(path).await?;
+        full_path: &str,
+        base: Option<DirectoryID>,
+    ) -> Result<Uuid, Error> {
+        let (path, file) = full_path.rsplit_once('/')
+            .map(|(path, file)| (path.to_string(), file.to_string()))
+            .unwrap_or(("".to_string(), full_path.to_string()));
+
+        trace!(?path, ?file, "Split file from parent");
+
+        let dir = self.directory_id_for_path(&path, base).await?;
         trace!(?dir, "Found directory");
 
         let query = r#"
-            SELECT files.uuid, files.stored_on_node_id, nodes.name
-                FROM files INNER JOIN nodes ON files.stored_on_node_id = nodes.id
+            SELECT files.uuid
+                FROM files
                 WHERE files.name = :filename AND directory_id = :dir;
             "#;
 
-        let Some((uuid, id, node_name)) = query
-            .with(params! { "filename" => filename, "dir" => dir.0 })
+        if let Some(uuid) = query
+            .with(params!("filename" => file, "dir" => dir))
+            .first(&self.conn_pool)
+            .await?
+        {
+            Ok(uuid)
+        } else {
+            Err(Error::NoSuchFile)
+        }
+    }
+
+    #[instrument(level = "trace", skip(self))]
+    pub async fn home_for_user(
+        &self,
+        name: &str,
+    ) -> Result<DirectoryID, Error> {
+        let query = r#"
+            SELECT home_directory
+                FROM users
+                WHERE username = :name;
+            "#;
+
+        if let Some(id) = query
+            .with(params! { "name" => name })
+            .first(&self.conn_pool)
+            .await?
+        {
+            Ok(id)
+        } else {
+            Err(Error::NoSuchUser { name: name.to_owned() })
+        }
+    }
+
+    // None = file not found
+    // TODO: Add NoSuchFile to Error?
+    #[instrument(level = "debug", skip(self))]
+    pub async fn get_file(
+        &self,
+        uuid: Uuid,
+    ) -> Result<(Vec<u8>, GetFileInfo), Error> {
+        let query = r#"
+            SELECT files.stored_on_node_id, nodes.name
+                FROM files INNER JOIN nodes ON files.stored_on_node_id = nodes.id
+                WHERE files.uuid = :uuid
+            "#;
+
+        let Some((id, node_name)) = query
+            .with(params! { "uuid" => uuid })
             .first(&self.conn_pool)
             .await?
         else {
-            debug!("No such file");
-            return Ok(None);
+            return Err(Error::UnknownUUID);
         };
-        trace!(?uuid, ?id, ?node_name, "Found file");
+        trace!(?id, ?node_name, "Found file");
 
         let conn = {
             let active_connections = self.active_connections.read().await;
@@ -152,52 +208,46 @@ impl FrontNode {
                     uuid,
                     node_name,
                 };
-                Ok(Some((c, info)))
+                Ok((c, info))
             }
             x => Err(Error::UnexpectedResponse(x))
         }
     }
 
-    #[instrument(skip(self))]
+    #[instrument(level = "debug", skip(self))]
     pub async fn list_directory(
         &self,
-        path: String,
+        dir: DirectoryID,
     ) -> Result<DirectoryListing, Error> {
-        let dir = self.directory_id_for_path(path).await?;
-        trace!(?dir, "Found directory");
-
         let query_files = r#"
-            SELECT name FROM files
+            SELECT uuid, name FROM files
                 WHERE directory_id = :dir;
             "#;
 
         let query_dirs = r#"
-            SELECT name FROM directories
+            SELECT id, name FROM directories
                 WHERE parent_id = :dir;
             "#;
 
-        let file_names: Vec<String> = query_files.with(params! { "dir" => &dir })
+        let file_uuids_and_names: Vec<(Uuid, String)> = query_files.with(params! { "dir" => &dir })
             .fetch(&self.conn_pool)
             .await?;
 
-        let directory_names: Vec<String> = query_dirs.with(params! { "dir" => &dir })
+        let directory_ids_and_names: Vec<(DirectoryID, String)> = query_dirs.with(params! { "dir" => &dir })
             .fetch(&self.conn_pool)
             .await?;
 
-        trace!(file_names.len = file_names.len(), directory_names.len = directory_names.len(), "Listed contents");
+        trace!(file_uuids_and_names.len = file_uuids_and_names.len(), directory_ids_and_names.len = directory_ids_and_names.len(), "Listed contents");
 
-        Ok(DirectoryListing { file_names, directory_names })
+        Ok(DirectoryListing { file_uuids_and_names, directory_ids_and_names })
     }
 
-    #[instrument(skip(self))]
+    #[instrument(level = "info", skip(self))]
     pub async fn create_directory(
         &self,
-        parent_path: String,
+        parent: DirectoryID,
         dir_name: String,
     ) -> Result<(), Error> {
-        let parent = self.directory_id_for_path(parent_path).await?;
-        trace!(?parent, "Found parent");
-
         let query = r#"
             INSERT INTO directories
                 (name, parent_id) VALUES
@@ -223,16 +273,13 @@ impl FrontNode {
         }
     }
 
-    #[instrument(skip(self, contents), fields(contents.len = contents.len()))]
+    #[instrument(level = "info", skip(self, contents), fields(contents.len = contents.len()))]
     pub async fn upload_file(
         &self,
         filename: String,
-        path: String,
+        dir: DirectoryID,
         contents: Vec<u8>,
     ) -> Result<Uuid, Error> {
-        let dir = self.directory_id_for_path(path).await?;
-        trace!(?dir, "Found parent");
-
         let info = UploadFileInfo {
             data_length: contents.len(),
         };
@@ -272,7 +319,7 @@ impl FrontNode {
     }
 }
 
-#[instrument(skip_all)]
+#[instrument(level = "info", skip_all)]
 async fn monitor_connections(
     conn_pool: mysql_async::Pool,
     active_connections: Arc<RwLock<HashMap<StorageNodeID, Arc<StorageNodeConnection>>>>,

@@ -1,16 +1,21 @@
-[connection_options]
+[database_connection]
 database = "bnuybase"
 socket_path = "/run/mysqld/mysqld.sock"
 user = "xenia"
 
-[storage_nodes.bnuy-1]
-addr = "127.0.0.1:1312"
+[http_server]
+listen_addr = "127.0.0.1:8080"
 
-[storage_nodes.bnuy-2]
-addr = "127.0.0.2:1312"
+
+
+# [storage_nodes.bnuy-1]
+# addr = "127.0.0.1:1312"
+
+# [storage_nodes.bnuy-2]
+# addr = "127.0.0.2:1312"
 
 [storage_nodes.catboy-cafe]
-addr = "192.168.2.254:1312"
+addr = "10.100.100.254:1312"
 
 [storage_nodes.xn--skrbrda-6wad]
-addr = "192.168.2.1:1312"
+addr = "10.100.100.1:1312"
