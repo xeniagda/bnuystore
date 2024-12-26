@@ -53,3 +53,18 @@ CREATE TABLE IF NOT EXISTS files (
     FOREIGN KEY (stored_on_node_id) REFERENCES nodes(id),
     FOREIGN KEY (directory_id) REFERENCES directories(id)
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT NOT NULL,
+    ssh_pubkey TEXT NOT NULL, -- used fo SFTP authentication
+    home_directory INT NOT NULL,
+
+    FOREIGN KEY (home_directory) REFERENCES directories(id)
+);
+
+INSERT INTO users(username, ssh_pubkey, home_directory)
+    SELECT
+        'xenia' as username,
+        'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC8q5YMnrLJrgp2azcgi9KgwFUIeH6tkEHrv9AxGYmRH xenia@foxhut' as ssh_pubkey,
+        0 as home_directory -- root folder
+        WHERE NOT EXISTS (SELECT * FROM users);

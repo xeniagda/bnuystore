@@ -5,10 +5,11 @@ use std::path::PathBuf;
 
 use std::collections::HashMap;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Config {
     pub database_connection: DatabaseConnectionOptions,
     pub http_server: HTTPServerOptions,
+    pub sftp_server: SFTPServerOptions,
 
     pub storage_nodes: HashMap<String, StorageNodeConfig>,
 }
@@ -37,7 +38,7 @@ impl Config {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct DatabaseConnectionOptions {
     // TODO: allow to connect using host-port-password?
     pub database: String,
@@ -55,9 +56,16 @@ impl DatabaseConnectionOptions {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct HTTPServerOptions {
     pub listen_addr: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct SFTPServerOptions {
+    pub listen_addr: String,
+    pub public_key: String,
+    pub private_key: String,
 }
 
 const fn default_timeout() -> u64 { 1 }

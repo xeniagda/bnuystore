@@ -9,9 +9,10 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+pub mod tys;
 pub mod config;
 pub mod storage_node_connection;
-pub mod tys;
+pub mod sftp;
 
 use storage_node_connection::StorageNodeConnection;
 
